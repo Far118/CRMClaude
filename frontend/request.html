@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Запрос — CRMNadya</title>
+  <link rel="stylesheet" href="/css/main.css">
+  <style>
+    .req-header { display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;margin-bottom:1rem }
+    .info-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:.75rem }
+    .info-item label { font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--text-faint);display:block;margin-bottom:.1rem }
+    .info-item .val { font-size:.9rem }
+    .timeline-item { display:flex;gap:.75rem;padding:.5rem 0;border-bottom:1px solid var(--divider) }
+    .timeline-item:last-child { border-bottom:none }
+    .tl-dot { width:10px;height:10px;border-radius:var(--r-full);flex-shrink:0;margin-top:.35rem }
+    .tl-dot.new       { background:var(--info) }
+    .tl-dot.in_progress { background:var(--orange) }
+    .tl-dot.kp_sent   { background:var(--purple) }
+    .tl-dot.negotiation { background:var(--yellow) }
+    .tl-dot.handover  { background:var(--success) }
+    .tl-dot.closed    { background:var(--text-faint) }
+    .comment-item { padding:.6rem 0;border-bottom:1px solid var(--divider);font-size:.85rem }
+    .comment-item:last-child { border-bottom:none }
+    .attach-row { display:flex;align-items:center;gap:.5rem;padding:.5rem 0;border-bottom:1px solid var(--divider);font-size:.85rem }
+    .attach-row:last-child { border-bottom:none }
+    .transition-btn { padding:.4rem .8rem;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface);font-size:.82rem;font-weight:600;cursor:pointer;transition:.15s }
+    .transition-btn:hover { background:var(--primary);border-color:var(--primary);color:#fff }
+    .transition-btn.danger:hover { background:var(--error);border-color:var(--error);color:#fff }
+  </style>
+</head>
+<body>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="layout">
+    <header class="topbar">
+      <button class="menu-btn" id="menuBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+      <a href="/requests.html" style="color:var(--text-muted);font-size:.85rem">← Запросы</a>
+      <div class="topbar-title" id="topTitle">Загрузка…</div>
+    </header>
+
+    <main class="main" id="content">
+      <div class="skeleton" style="width:60%"></div>
+      <div class="skeleton" style="width:40%;margin-top:.5rem"></div>
+    </main>
+  </div>
+  <div class="toast" id="toast"></div>
+
+  <script type="module">
+    import { initUI, esc, toast, fmtDate, fmtDateTime, fmtMoney } from '/js/ui.js';
+    import { api } from '/js/api.js';
+    import { LOOKUP, requestStatusLabel, requestStatusColor } from '/js/const.js';
+
+    const session = await initUI({ active: 'requests' });
+    if (!session) throw new Error('no session');
+    const lookup = await LOOKUP.load();
+
+    const id = new URLSearchParams(location.search).get('id');
+    if (!id) { location.href = '/requests.html'; }
+
+    let request = null, history = [], comments = [], attachments = [];
+
+    async function reload() {
+      [request, history, comments, attachments] = await Promise.all([
+        api.get(`/requests/${id}`),
+        api.get(`/requests/${id}/history`),
+        api.get(`/comments?entity_type=request&entity_id=${id}`),
+        api.get(`/requests/${id}/attachments`).catch(()=>[]),
+      ]);
+      render();
+    }
+
+    await reload();
+
+    function stBadge(s) {
+      return `<span class="badge badge-${requestStatusColor(s)}">${esc(requestStatusLabel(s))}</span>`;
+    }
+
+    function render() {
+      document.getElementById('topTitle').textContent =
+        `${request.route_from||'?'} → ${request.route_to||'?'}`;
+
+      const transitions = (lookup.allowed_transitions || {})[request.status] || [];
+      const canEdit = ['admin','head'].includes(session.role) || request.owner_id === session.id;
+
+      const transitionBtns = canEdit ? transitions.map(s =>
+        `<button class="transition-btn ${s==='closed'?'danger':''}" data-status="${s}">${esc(requestStatusLabel(s))}</button>`
+      ).join(' ') : '';
+
+      const closedSection = request.status === 'closed' ? `
+        <div style="background:var(--surface-off);border:1px solid var(--border);border-radius:var(--r-md);padding:.75rem 1rem;margin-top:.75rem;font-size:.84rem">
+          <b>Причина закрытия:</b> ${esc(request.close_reason_label||'не указана')}<br>
+          ${request.close_comment?`<b>Комментарий:</b> ${esc(request.close_comment)}`:''}
+        </div>` : '';
+
+      const reopenBtn = (request.status === 'closed' && ['admin','head'].includes(session.role))
+        ? `<button class="btn btn-sm btn-ghost" id="reopenBtn">↩ Переоткрыть</button>` : '';
+
+      document.getElementById('content').innerHTML = `
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">
+              ${stBadge(request.status)}
+              <span style="margin-left:.25rem">${esc(request.route_from||'?')} → ${esc(request.route_to||'?')}</span>
+            </div>
+            <div style="display:flex;gap:.35rem;align-items:center;flex-wrap:wrap">
+              ${transitionBtns}
+              ${reopenBtn}
+            </div>
+          </div>
+          <div class="card-body padded">
+            ${closedSection}
+            <div class="info-grid" style="margin-top:.75rem">
+              <div class="info-item"><label>Компания</label><div class="val"><a href="/company.html?id=${request.company_id}" style="color:var(--primary)">${esc(request.company_name||'—')}</a></div></div>
+              <div class="info-item"><label>Ответственный</label><div class="val">${esc(request.owner_name||'—')}</div></div>
+              <div class="info-item"><label>Тип груза</label><div class="val">${esc(lookup.cargo_type_labels?.[request.cargo_type]||request.cargo_type||'—')}</div></div>
+              <div class="info-item"><label>Транспорт</label><div class="val">${esc(lookup.transport_type_labels?.[request.transport_type]||request.transport_type||'—')}</div></div>
+              <div class="info-item"><label>Ставка</label><div class="val">${request.our_rate?`<b>${fmtMoney(request.our_rate)} ${request.currency}</b>`:'—'}</div></div>
+              <div class="info-item"><label>Маржа</label><div class="val">${request.margin_percent!=null?request.margin_percent+'%':'—'}</div></div>
+              <div class="info-item"><label>Вес, кг</label><div class="val">${request.weight_kg||'—'}</div></div>
+              <div class="info-item"><label>Создан</label><div class="val">${fmtDate(request.created_at)}</div></div>
+              ${request.kp_sent_at?`<div class="info-item"><label>КП отправлено</label><div class="val">${fmtDate(request.kp_sent_at)}</div></div>`:''}
+              ${request.handover_at?`<div class="info-item"><label>Передано</label><div class="val">${fmtDate(request.handover_at)}</div></div>`:''}
+            </div>
+            ${request.notes?`<div style="margin-top:.75rem;font-size:.85rem;color:var(--text-muted)">${esc(request.notes)}</div>`:''}
+          </div>
+        </div>
+
+        <!-- Timeline -->
+        <div class="card" style="margin-top:1rem">
+          <div class="card-head"><div class="card-title">📋 История статусов</div></div>
+          <div class="card-body padded">
+            ${history.length ? history.map(h=>`
+              <div class="timeline-item">
+                <div class="tl-dot ${h.to_status}"></div>
+                <div style="flex:1">
+                  <span style="font-weight:600">${esc(requestStatusLabel(h.to_status))}</span>
+                  ${h.from_status?`<span style="color:var(--text-faint);font-size:.8rem"> ← ${esc(requestStatusLabel(h.from_status))}</span>`:''}
+                  ${h.comment?`<div style="font-size:.8rem;color:var(--text-muted)">${esc(h.comment)}</div>`:''}
+                </div>
+                <div style="text-align:right;font-size:.76rem;color:var(--text-faint)">
+                  <div>${esc(h.changed_by_name||'—')}</div>
+                  <div>${fmtDateTime(h.changed_at)}</div>
+                </div>
+              </div>`).join('') : '<div class="empty-mini">Нет истории</div>'}
+          </div>
+        </div>
+
+        <!-- Вложения -->
+        <div class="card" style="margin-top:1rem">
+          <div class="card-head">
+            <div class="card-title">📎 Вложения (КП, документы)</div>
+            ${canEdit && request.status!=='closed'?'<label class="btn btn-sm btn-primary" style="cursor:pointer">Прикрепить<input type="file" id="fileInput" style="display:none" accept=".pdf,.docx,.doc,.xlsx,.xls,.png,.jpg,.jpeg,.zip"></label>':''}
+          </div>
+          <div class="card-body padded" id="attachList">
+            ${attachments.length ? attachments.map(a=>`
+              <div class="attach-row">
+                <span>📄</span>
+                <span style="flex:1;font-weight:500">${esc(a.filename)}</span>
+                <span style="font-size:.75rem;color:var(--text-muted)">${a.file_size?Math.round(a.file_size/1024)+'КБ':''}</span>
+                <span style="font-size:.75rem;color:var(--text-muted)">${fmtDate(a.created_at)}</span>
+                ${canEdit?`<button class="btn btn-sm btn-ghost" data-del="${a.id}">✕</button>`:''}
+              </div>`).join('') : '<div class="empty-mini">Нет вложений</div>'}
+          </div>
+        </div>
+
+        <!-- Комментарии -->
+        <div class="card" style="margin-top:1rem">
+          <div class="card-head"><div class="card-title">💬 Комментарии</div></div>
+          <div class="card-body padded">
+            <div style="display:flex;gap:.5rem;margin-bottom:1rem">
+              <input class="input" id="commentInput" placeholder="Написать комментарий…">
+              <button class="btn btn-primary btn-sm" id="commentBtn">Отправить</button>
+            </div>
+            ${comments.length ? comments.map(c=>`
+              <div class="comment-item">
+                <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.2rem">
+                  <span style="font-weight:600">${esc(c.author_name||'—')}</span>
+                  <span style="font-size:.72rem;color:var(--text-faint)">${fmtDateTime(c.created_at)}</span>
+                </div>
+                <div>${esc(c.body)}</div>
+              </div>`).join('') : '<div class="empty-mini">Нет комментариев</div>'}
+          </div>
+        </div>
+
+        <!-- Модал: закрытие -->
+        <div id="closeModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:50;align-items:center;justify-content:center;padding:1rem">
+          <div class="card" style="width:440px;max-width:100%">
+            <div class="card-head"><div class="card-title">Закрыть запрос</div></div>
+            <div class="card-body padded">
+              <div style="margin-bottom:.75rem"><label class="field-label">Причина *</label>
+                <select class="select" id="closeReason">
+                  <option value="">— Выберите причину —</option>
+                  ${(lookup.close_reasons||[]).map(r=>`<option value="${r.id}" data-requires="${r.requires_comment}">${esc(r.label)}</option>`).join('')}
+                </select>
+              </div>
+              <div style="margin-bottom:.75rem"><label class="field-label">Комментарий</label>
+                <textarea class="input" id="closeComment" rows="2" placeholder="Подробности…"></textarea>
+              </div>
+              <div style="display:flex;gap:.5rem;justify-content:flex-end">
+                <button class="btn" id="closeCancelBtn">Отмена</button>
+                <button class="btn btn-danger" id="closeConfirmBtn">Закрыть запрос</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      // Переходы статусов
+      document.querySelectorAll('[data-status]').forEach(btn => {
+        btn.addEventListener('click', () => handleTransition(btn.dataset.status));
+      });
+
+      // Файл upload
+      document.getElementById('fileInput')?.addEventListener('change', uploadFile);
+
+      // Удалить вложение
+      document.querySelectorAll('[data-del]').forEach(btn => {
+        btn.addEventListener('click', () => deleteAttachment(btn.dataset.del));
+      });
+
+      // Комментарий
+      document.getElementById('commentBtn')?.addEventListener('click', addComment);
+      document.getElementById('commentInput')?.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); addComment(); }
+      });
+
+      // Reopen
+      document.getElementById('reopenBtn')?.addEventListener('click', async () => {
+        const comment = prompt('Причина переоткрытия:');
+        if (!comment?.trim()) return;
+        try {
+          await api.post(`/requests/${id}/reopen`, { comment });
+          toast('Запрос переоткрыт', 'success');
+          await reload();
+        } catch(err) { toast('Ошибка: '+err.message, 'error'); }
+      });
+
+      // Модал закрытия
+      document.getElementById('closeCancelBtn')?.addEventListener('click', () => {
+        document.getElementById('closeModal').style.display = 'none';
+      });
+      document.getElementById('closeConfirmBtn')?.addEventListener('click', doClose);
+    }
+
+    async function handleTransition(targetStatus) {
+      if (targetStatus === 'closed') {
+        document.getElementById('closeModal').style.display = 'flex';
+        return;
+      }
+      try {
+        await api.patch(`/requests/${id}/status`, { status: targetStatus, updated_at: request.updated_at });
+        toast('Статус обновлён', 'success');
+        await reload();
+      } catch(err) {
+        toast('Ошибка: '+err.message, 'error');
+        if (err.message.includes('Обновите')) setTimeout(reload, 500);
+      }
+    }
+
+    async function doClose() {
+      const reasonId = document.getElementById('closeReason').value;
+      const comment  = document.getElementById('closeComment').value;
+      const sel      = document.getElementById('closeReason');
+      const opt      = sel.selectedOptions[0];
+      if (!reasonId) { toast('Выберите причину', 'error'); return; }
+      if (opt?.dataset.requires === 'true' && !comment.trim()) {
+        toast('Для этой причины обязателен комментарий', 'error'); return;
+      }
+      try {
+        await api.patch(`/requests/${id}/status`, { status: 'closed', close_reason_id: reasonId, comment, updated_at: request.updated_at });
+        document.getElementById('closeModal').style.display = 'none';
+        toast('Запрос закрыт', 'success');
+        await reload();
+      } catch(err) { toast('Ошибка: '+err.message, 'error'); }
+    }
+
+    async function uploadFile() {
+      const file = document.getElementById('fileInput').files[0];
+      if (!file) return;
+      const fd = new FormData(); fd.append('file', file);
+      try {
+        const r = await fetch(`/api/requests/${id}/attachments`, { method:'POST', credentials:'include', body:fd });
+        if (!r.ok) throw new Error((await r.json()).error);
+        toast('Файл прикреплён: '+esc(file.name), 'success');
+        await reload();
+      } catch(err) { toast('Ошибка: '+err.message, 'error'); }
+    }
+
+    async function deleteAttachment(attId) {
+      if (!confirm('Удалить вложение?')) return;
+      try {
+        await api.del(`/requests/${id}/attachments/${attId}`);
+        toast('Вложение удалено');
+        await reload();
+      } catch(err) { toast('Ошибка: '+err.message, 'error'); }
+    }
+
+    async function addComment() {
+      const body = document.getElementById('commentInput').value.trim();
+      if (!body) return;
+      try {
+        await api.post('/comments', { entity_type: 'request', entity_id: id, body });
+        document.getElementById('commentInput').value = '';
+        await reload();
+      } catch(err) { toast('Ошибка: '+err.message, 'error'); }
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Запросы — CRMNadya</title>
+  <link rel="stylesheet" href="/css/main.css">
+  <style>
+    .req-card { border:1px solid var(--border);border-radius:var(--r-md);padding:.9rem 1rem;margin-bottom:.5rem;cursor:pointer;transition:.15s }
+    .req-card:hover { border-color:var(--primary);box-shadow:var(--shadow) }
+    .req-meta { font-size:.78rem;color:var(--text-muted);display:flex;gap:.75rem;flex-wrap:wrap;margin-top:.25rem }
+    .status-panel { display:flex;gap:.35rem;flex-wrap:wrap;margin-bottom:1rem }
+    .filter-chip { padding:.35rem .75rem;border:1px solid var(--border);border-radius:var(--r-full);font-size:.8rem;cursor:pointer;background:var(--surface);transition:.15s }
+    .filter-chip.active { background:var(--primary);border-color:var(--primary);color:#fff }
+    .filter-chip:hover:not(.active) { border-color:var(--primary);color:var(--primary) }
+  </style>
+</head>
+<body x-data="requestsPage()" x-init="init()">
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="layout">
+    <header class="topbar">
+      <button class="menu-btn" id="menuBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+      <div class="topbar-title">Запросы</div>
+      <button class="btn btn-primary" style="margin-left:auto" @click="openNew()">+ Запрос</button>
+    </header>
+    <main class="main">
+      <div style="display:flex;gap:.5rem;margin-bottom:.75rem;flex-wrap:wrap;align-items:center">
+        <input class="input" placeholder="Поиск по маршруту, компании…" x-model="q" @input.debounce.400ms="load()" style="flex:1;min-width:200px">
+        <select class="filter-select" x-model="ownerFilter" x-show="isHead" @change="load()">
+          <option value="">Все менеджеры</option>
+          <template x-for="u in users" :key="u.id"><option :value="u.id" x-text="`${u.first_name} ${u.last_name}`"></option></template>
+        </select>
+      </div>
+      <div class="status-panel">
+        <div class="filter-chip" :class="{active:statusFilter===''}" @click="statusFilter='';load()">Все</div>
+        <template x-for="s in (lookup.request_statuses||[])" :key="s">
+          <div class="filter-chip" :class="{active:statusFilter===s}" @click="statusFilter=s;load()" x-text="lookup.request_status_labels?.[s]||s"></div>
+        </template>
+      </div>
+
+      <div x-show="loading"><div class="skeleton" style="width:60%"></div><div class="skeleton" style="width:70%;margin-top:.5rem"></div></div>
+      <div x-show="!loading && !requests.length" class="empty-mini">Запросов не найдено</div>
+
+      <template x-for="r in requests" :key="r.id">
+        <div class="req-card" @click="location.href=`/requests.html?id=${r.id}`" x-show="!loading">
+          <div style="display:flex;align-items:center;gap:.65rem">
+            <span class="badge" :class="'badge-'+reqColor(r.status)" x-text="reqLabel(r.status)"></span>
+            <span style="font-weight:600;flex:1" x-text="`${r.route_from||'?'} → ${r.route_to||'?'}`"></span>
+            <span x-show="r.our_rate" style="font-weight:700" x-text="fmtMoney(r.our_rate)+' ₽'"></span>
+          </div>
+          <div class="req-meta">
+            <span>🏢 <span x-text="r.company_name||'—'"></span></span>
+            <span x-show="r.owner_name">👤 <span x-text="r.owner_name"></span></span>
+            <span>📅 <span x-text="fmtDate(r.created_at)"></span></span>
+            <span x-show="r.cargo_type">📦 <span x-text="lookup.cargo_type_labels?.[r.cargo_type]||r.cargo_type"></span></span>
+          </div>
+        </div>
+      </template>
+    </main>
+  </div>
+
+  <!-- Модалка: просмотр/смена статуса запроса -->
+  <div x-show="selectedRequest" x-cloak style="position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:50;display:flex;align-items:flex-end;justify-content:center;padding:1rem" @click.self="selectedRequest=null">
+    <template x-if="selectedRequest">
+      <div class="card" style="width:600px;max-width:100%;max-height:85vh;overflow-y:auto">
+        <div class="card-head">
+          <div class="card-title" x-text="selectedRequest.route_from+' → '+selectedRequest.route_to"></div>
+          <span class="badge" :class="'badge-'+reqColor(selectedRequest.status)" x-text="reqLabel(selectedRequest.status)"></span>
+        </div>
+        <div class="card-body padded">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:1rem">
+            <div><label class="field-label">Компания</label><div x-text="selectedRequest.company_name"></div></div>
+            <div><label class="field-label">Ставка</label><div x-text="selectedRequest.our_rate?fmtMoney(selectedRequest.our_rate)+' '+selectedRequest.currency:'—'"></div></div>
+            <div><label class="field-label">Тип груза</label><div x-text="lookup.cargo_type_labels?.[selectedRequest.cargo_type]||selectedRequest.cargo_type"></div></div>
+            <div><label class="field-label">Транспорт</label><div x-text="lookup.transport_type_labels?.[selectedRequest.transport_type]||selectedRequest.transport_type"></div></div>
+          </div>
+          <!-- Переходы статуса -->
+          <div>
+            <label class="field-label">Сменить статус</label>
+            <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.4rem">
+              <template x-for="s in allowedNextStatuses" :key="s">
+                <button class="btn btn-sm" :class="s==='closed'?'btn-danger':'btn-primary'" @click="promptStatus(s)" x-text="reqLabel(s)"></button>
+              </template>
+            </div>
+          </div>
+          <!-- Закрытие -->
+          <template x-if="closingStatus">
+            <div style="margin-top:1rem;padding:1rem;background:var(--surface-off);border-radius:var(--r-md)">
+              <label class="field-label">Причина закрытия *</label>
+              <select class="select" x-model="closeReasonId" style="margin-bottom:.5rem">
+                <option value="">— Выберите причину —</option>
+                <template x-for="r in (lookup.close_reasons||[])" :key="r.id"><option :value="r.id" x-text="r.label"></option></template>
+              </select>
+              <label class="field-label">Комментарий</label>
+              <textarea class="input" rows="2" x-model="closeComment" placeholder="Подробности…"></textarea>
+              <div style="display:flex;gap:.5rem;margin-top:.5rem">
+                <button class="btn" @click="closingStatus=null">Отмена</button>
+                <button class="btn btn-danger" @click="applyStatus()" :disabled="!closeReasonId">Закрыть запрос</button>
+              </div>
+            </div>
+          </template>
+          <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem">
+            <button class="btn" @click="selectedRequest=null">Закрыть</button>
+            <a class="btn btn-primary" :href="`/requests.html?id=${selectedRequest.id}`">Открыть карточку →</a>
+          </div>
+        </div>
+      </div>
+    </template>
+  </div>
+
+  <!-- Модалка: создать запрос -->
+  <div x-show="newModal" x-cloak style="position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:50;display:flex;align-items:center;justify-content:center;padding:1rem" @click.self="newModal=false">
+    <div class="card" style="width:520px;max-width:100%;max-height:90vh;overflow-y:auto">
+      <div class="card-head"><div class="card-title">Новый запрос</div></div>
+      <div class="card-body padded">
+        <div style="margin-bottom:.7rem"><label class="field-label">Компания *</label>
+          <select class="select" x-model="newForm.company_id">
+            <option value="">— Выберите компанию —</option>
+            <template x-for="c in myCompanies" :key="c.id"><option :value="c.id" x-text="c.name"></option></template>
+          </select>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.7rem">
+          <div><label class="field-label">Откуда</label><input class="input" x-model="newForm.route_from"></div>
+          <div><label class="field-label">Куда</label><input class="input" x-model="newForm.route_to"></div>
+          <div><label class="field-label">Тип груза</label>
+            <select class="select" x-model="newForm.cargo_type">
+              <template x-for="t in (lookup.cargo_types||[])" :key="t"><option :value="t" x-text="lookup.cargo_type_labels?.[t]||t"></option></template>
+            </select>
+          </div>
+          <div><label class="field-label">Транспорт</label>
+            <select class="select" x-model="newForm.transport_type">
+              <template x-for="t in (lookup.transport_types||[])" :key="t"><option :value="t" x-text="lookup.transport_type_labels?.[t]||t"></option></template>
+            </select>
+          </div>
+          <div><label class="field-label">Вес, кг</label><input type="number" class="input" x-model.number="newForm.weight_kg"></div>
+          <div><label class="field-label">Бюджет клиента, ₽</label><input type="number" class="input" x-model.number="newForm.budget"></div>
+        </div>
+        <div style="margin-top:.7rem"><label class="field-label">Примечание</label><textarea class="input" rows="2" x-model="newForm.notes"></textarea></div>
+        <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem">
+          <button class="btn" @click="newModal=false">Отмена</button>
+          <button class="btn btn-primary" @click="createRequest()" :disabled="saving">Создать</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script type="module" src="/js/pages/requests.js"></script>
+  <style>[x-cloak]{display:none!important}</style>
+</body>
+</html>

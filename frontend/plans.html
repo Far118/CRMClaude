@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Планы — CRMNadya</title>
+  <link rel="stylesheet" href="/css/main.css">
+  <style>
+    .plans-table { width:100%;border-collapse:collapse;font-size:.82rem }
+    .plans-table th { padding:.6rem .5rem;text-align:center;font-weight:700;color:var(--text-muted);border-bottom:2px solid var(--border);white-space:nowrap }
+    .plans-table th:first-child { text-align:left }
+    .plans-table td { padding:.5rem;border-bottom:1px solid var(--divider);text-align:center;vertical-align:middle }
+    .plans-table td:first-child { text-align:left;font-weight:600 }
+    .plan-input { width:80px;text-align:center;padding:.3rem .4rem;border:1px solid var(--border);border-radius:var(--r-sm);font-size:.82rem }
+    .plan-input:focus { outline:none;border-color:var(--primary) }
+    .fact-cell { font-size:.76rem }
+    .pct-chip { display:inline-block;padding:.15rem .4rem;border-radius:var(--r-full);font-size:.7rem;font-weight:700 }
+    .pct-great { background:var(--success);color:#fff }
+    .pct-ok    { background:var(--primary);color:#fff }
+    .pct-warn  { background:var(--warning);color:#fff }
+    .pct-bad   { background:var(--error);color:#fff }
+    .pct-none  { background:var(--surface-off);color:var(--text-muted) }
+    .save-indicator { font-size:.7rem;color:var(--success);margin-left:.25rem }
+  </style>
+</head>
+<body x-data="plansPage()" x-init="init()">
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="layout">
+    <header class="topbar">
+      <button class="menu-btn" id="menuBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+      <div class="topbar-title">Планы</div>
+    </header>
+    <main class="main">
+      <!-- Навигация по периоду -->
+      <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1rem">
+        <button class="btn btn-sm" @click="prevMonth()">← Пред.</button>
+        <div style="font-weight:700;font-size:1rem" x-text="monthTitle"></div>
+        <button class="btn btn-sm" @click="nextMonth()">След. →</button>
+        <button class="btn btn-sm btn-ghost" @click="openCopyModal()">📋 Скопировать с другого месяца</button>
+      </div>
+
+      <div x-show="loading"><div class="skeleton" style="width:80%"></div></div>
+
+      <div x-show="!loading && !users.length" class="empty-mini">Нет пользователей в команде</div>
+
+      <div x-show="!loading && users.length" style="overflow-x:auto">
+        <table class="plans-table">
+          <thead>
+            <tr>
+              <th>Менеджер</th>
+              <template x-for="f in fields" :key="f.key">
+                <th x-text="f.label"></th>
+              </template>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="u in users" :key="u.id">
+              <tr>
+                <td>
+                  <span x-text="userName(u)"></span>
+                  <span class="save-indicator" x-show="saveState[u.id]==='saved'">✓</span>
+                </td>
+                <template x-for="f in fields" :key="f.key">
+                  <td>
+                    <input class="plan-input"
+                      type="number" min="0"
+                      :value="targetVal(u.id, f.key)"
+                      :data-uid="u.id" :data-field="f.key"
+                      @input="onInput(u.id, f.key)"
+                      @blur="onBlur(u.id, f.key)">
+                    <div class="fact-cell" style="margin-top:.2rem">
+                      <span x-show="factVal(u.id, f.key)!==null" x-text="`факт: ${factVal(u.id, f.key)}`"></span>
+                      <span class="pct-chip" :class="pctClass(pct(u.id, f.key))" x-show="pct(u.id, f.key)!==null" x-text="pct(u.id, f.key)+'%'"></span>
+                    </div>
+                  </td>
+                </template>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Модалка копирования -->
+      <div x-show="copyModal" x-cloak style="position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:50;display:flex;align-items:center;justify-content:center;padding:1rem" @click.self="copyModal=false">
+        <div class="card" style="width:380px;max-width:100%">
+          <div class="card-head"><div class="card-title">Скопировать планы</div></div>
+          <div class="card-body padded">
+            <div style="margin-bottom:1rem">Скопировать планы из <b x-text="copyFromTitle"></b> в <b x-text="monthTitle"></b>?</div>
+            <div style="display:flex;gap:.5rem;justify-content:flex-end">
+              <button class="btn" @click="copyModal=false">Отмена</button>
+              <button class="btn btn-primary" @click="confirmCopy()" :disabled="copying">Скопировать</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+  <div class="toast" id="toast"></div>
+  <script type="module" src="/js/pages/plans.js"></script>
+  <style>[x-cloak]{display:none!important}</style>
+</body>
+</html>

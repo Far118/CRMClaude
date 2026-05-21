@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Настройки — CRMNadya</title>
+  <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="layout">
+    <header class="topbar">
+      <button class="menu-btn" id="menuBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+      <div class="topbar-title">Настройки</div>
+    </header>
+    <main class="main">
+      <!-- AI-провайдер -->
+      <div class="card" style="max-width:500px">
+        <div class="card-head"><div class="card-title">✨ AI-провайдер</div></div>
+        <div class="card-body padded" id="aiForm">
+          <div class="skeleton" style="width:70%"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+  <div class="toast" id="toast"></div>
+
+  <script type="module">
+    import { initUI, toast } from '/js/ui.js';
+    import { api } from '/js/api.js';
+
+    await initUI({ active: 'settings', roles: ['admin'] });
+
+    let current = null;
+    try {
+      const list = await api.get('/settings/ai');
+      current = list?.[0] || null;
+    } catch {}
+
+    const form = document.getElementById('aiForm');
+    form.innerHTML = `
+      <div style="margin-bottom:.75rem">
+        <label class="field-label">Провайдер</label>
+        <select class="select" id="provider">
+          <option value="openai">OpenAI</option>
+          <option value="anthropic">Anthropic (Claude)</option>
+          <option value="deepseek">DeepSeek</option>
+        </select>
+      </div>
+      <div style="margin-bottom:.75rem"><label class="field-label">API-ключ</label><input type="password" class="input" id="apiKey" placeholder="sk-…"></div>
+      <div style="margin-bottom:.75rem"><label class="field-label">Модель</label><input class="input" id="model" placeholder="gpt-4o-mini"></div>
+      <div style="display:flex;gap:.5rem;align-items:center">
+        <button class="btn btn-primary" id="saveBtn">Сохранить</button>
+        <button class="btn btn-ghost" id="testBtn">Проверить соединение</button>
+        <span id="testResult" style="font-size:.82rem;color:var(--text-muted)"></span>
+      </div>`;
+
+    if (current) {
+      document.getElementById('provider').value = current.provider || 'openai';
+      document.getElementById('model').value = current.model || '';
+    }
+
+    document.getElementById('saveBtn').addEventListener('click', async () => {
+      const data = {
+        provider: document.getElementById('provider').value,
+        api_key:  document.getElementById('apiKey').value,
+        model:    document.getElementById('model').value,
+      };
+      if (!data.api_key) { toast('Введите API-ключ', 'error'); return; }
+      try {
+        await api.post('/settings/ai', data);
+        toast('Настройки сохранены', 'success');
+      } catch (err) { toast('Ошибка: ' + err.message, 'error'); }
+    });
+
+    document.getElementById('testBtn').addEventListener('click', async () => {
+      const el = document.getElementById('testResult');
+      el.textContent = 'Проверка…';
+      try {
+        const r = await api.post('/settings/ai/test', {});
+        el.textContent = '✓ Соединение работает';
+        el.style.color = 'var(--success)';
+      } catch (err) {
+        el.textContent = '✗ ' + err.message;
+        el.style.color = 'var(--error)';
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Компания — CRMNadya</title>
+  <link rel="stylesheet" href="/css/main.css">
+  <style>
+    .tab-bar { display:flex;gap:.1rem;border-bottom:2px solid var(--border);margin-bottom:1rem; }
+    .tab { padding:.55rem 1rem;font-size:.88rem;font-weight:500;color:var(--text-muted);border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;transition:.15s }
+    .tab.active,.tab:hover { color:var(--primary) }
+    .tab.active { border-bottom-color:var(--primary);font-weight:700 }
+    .info-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:.75rem;margin-bottom:1rem }
+    .info-item label { font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--text-faint);display:block;margin-bottom:.15rem }
+    .info-item .val { font-size:.9rem }
+    .history-row { display:flex;align-items:center;gap:.75rem;padding:.5rem 0;border-bottom:1px solid var(--divider);font-size:.84rem }
+    .history-row:last-child { border-bottom:none }
+    .req-row { display:flex;align-items:center;gap:.75rem;padding:.6rem;border-bottom:1px solid var(--divider);cursor:pointer }
+    .req-row:hover { background:var(--surface-off) }
+    .req-row:last-child { border-bottom:none }
+    .contact-card { border:1px solid var(--border);border-radius:var(--r-md);padding:.75rem;margin-bottom:.5rem }
+    .act-item { display:flex;gap:.75rem;padding:.5rem 0;border-bottom:1px solid var(--divider);font-size:.85rem }
+    .act-item:last-child { border-bottom:none }
+    .act-dot { width:8px;height:8px;border-radius:var(--r-full);background:var(--primary);flex-shrink:0;margin-top:.35rem }
+    .comment-item { padding:.6rem 0;border-bottom:1px solid var(--divider);font-size:.85rem }
+    .comment-item:last-child { border-bottom:none }
+  </style>
+</head>
+<body x-data="companyPage()" x-init="init()">
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="layout">
+    <header class="topbar">
+      <button class="menu-btn" id="menuBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+      <a href="/companies.html" style="color:var(--text-muted);font-size:.85rem">← Компании</a>
+      <div class="topbar-title" x-text="company?.name || 'Загрузка…'"></div>
+      <span class="badge" x-show="company" :class="'badge-'+stColor(company?.calculated_status)" x-text="stLabel(company?.calculated_status)" style="margin-left:.5rem"></span>
+    </header>
+
+    <main class="main">
+      <div x-show="loading"><div class="skeleton" style="width:60%"></div></div>
+      <div x-show="!loading && !company" class="empty-mini">Компания не найдена</div>
+
+      <template x-if="!loading && company">
+        <div>
+          <!-- Вкладки -->
+          <div class="tab-bar">
+            <div class="tab" :class="{active:tab==='overview'}" @click="tab='overview'">Обзор</div>
+            <div class="tab" :class="{active:tab==='requests'}" @click="tab='requests'">Запросы <span x-text="requests.length?`(${requests.length})`:''"></span></div>
+            <div class="tab" :class="{active:tab==='contacts'}" @click="tab='contacts'">Контакты <span x-text="contacts.length?`(${contacts.length})`:''"></span></div>
+            <div class="tab" :class="{active:tab==='activity'}" @click="tab='activity'">Активность</div>
+            <div class="tab" :class="{active:tab==='history'}" @click="tab='history'">История</div>
+          </div>
+
+          <!-- ОБЗОР -->
+          <template x-if="tab==='overview'">
+            <div>
+              <div class="card" style="margin-bottom:1rem">
+                <div class="card-head">
+                  <div class="card-title">Основная информация</div>
+                  <button class="btn btn-sm btn-ghost" @click="editMode=!editMode" x-text="editMode?'Отмена':'Редактировать'"></button>
+                </div>
+                <div class="card-body padded">
+                  <template x-if="!editMode">
+                    <div class="info-grid">
+                      <div class="info-item"><label>ИНН</label><div class="val" x-text="company.inn||'—'"></div></div>
+                      <div class="info-item"><label>Телефон</label><div class="val" x-text="company.phone_main||'—'"></div></div>
+                      <div class="info-item"><label>Email</label><div class="val" x-text="company.email_main||'—'"></div></div>
+                      <div class="info-item"><label>Сайт</label><div class="val" x-text="company.website||'—'"></div></div>
+                      <div class="info-item"><label>Источник</label><div class="val" x-text="company.source||'—'"></div></div>
+                      <div class="info-item"><label>Приоритет</label><div class="val" x-text="lookup.company_priority_labels?.[company.priority]||'—'"></div></div>
+                      <div class="info-item"><label>Ответственный</label><div class="val" x-text="company.owner_name||'—'"></div></div>
+                      <div class="info-item"><label>Следующее касание</label><div class="val" x-text="company.next_action_at?fmtDate(company.next_action_at):'—'"></div></div>
+                    </div>
+                  </template>
+                  <template x-if="editMode">
+                    <div>
+                      <div class="info-grid">
+                        <div><label class="field-label">Название</label><input class="input" x-model="editForm.name"></div>
+                        <div><label class="field-label">ИНН</label><input class="input" x-model="editForm.inn"></div>
+                        <div><label class="field-label">Телефон</label><input class="input" x-model="editForm.phone_main"></div>
+                        <div><label class="field-label">Email</label><input class="input" x-model="editForm.email_main"></div>
+                        <div><label class="field-label">Сайт</label><input class="input" x-model="editForm.website"></div>
+                        <div><label class="field-label">Источник</label><input class="input" x-model="editForm.source"></div>
+                        <div><label class="field-label">Следующее касание</label><input type="date" class="input" x-model="editForm.next_action_at"></div>
+                      </div>
+                      <div style="margin-top:.5rem"><label class="field-label">Заметки</label><textarea class="input" rows="3" x-model="editForm.notes"></textarea></div>
+                      <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:.75rem">
+                        <button class="btn" @click="editMode=false">Отмена</button>
+                        <button class="btn btn-primary" @click="saveEdit()" :disabled="saving">Сохранить</button>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+              <!-- Статистика -->
+              <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:.75rem">
+                <div class="card"><div class="card-body padded" style="text-align:center"><div style="font-size:1.5rem;font-weight:700" x-text="requests.length"></div><div style="font-size:.75rem;color:var(--text-muted)">Всего запросов</div></div></div>
+                <div class="card"><div class="card-body padded" style="text-align:center"><div style="font-size:1.5rem;font-weight:700;color:var(--success)" x-text="wonCount"></div><div style="font-size:.75rem;color:var(--text-muted)">Выиграно</div></div></div>
+                <div class="card"><div class="card-body padded" style="text-align:center"><div style="font-size:1.5rem;font-weight:700" x-text="activeRequests.length"></div><div style="font-size:.75rem;color:var(--text-muted)">Активных</div></div></div>
+              </div>
+            </div>
+          </template>
+
+          <!-- ЗАПРОСЫ -->
+          <template x-if="tab==='requests'">
+            <div>
+              <div style="display:flex;justify-content:flex-end;margin-bottom:.75rem">
+                <button class="btn btn-primary btn-sm" @click="newRequest()">+ Запрос</button>
+              </div>
+              <div class="card">
+                <div x-show="!requests.length" class="empty-mini">Нет запросов</div>
+                <template x-for="r in sortedRequests" :key="r.id">
+                  <div class="req-row" @click="location.href=`/requests.html?id=${r.id}`">
+                    <span class="badge" :class="'badge-'+reqColor(r.status)" x-text="reqLabel(r.status)"></span>
+                    <span style="flex:1;font-size:.88rem" x-text="`${r.route_from||'?'} → ${r.route_to||'?'}`"></span>
+                    <span style="font-size:.82rem;color:var(--text-muted)" x-text="r.our_rate?fmtMoney(r.our_rate)+' ₽':''"></span>
+                    <span style="font-size:.76rem;color:var(--text-faint)" x-text="fmtDate(r.created_at)"></span>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+
+          <!-- КОНТАКТЫ -->
+          <template x-if="tab==='contacts'">
+            <div>
+              <div style="display:flex;justify-content:flex-end;margin-bottom:.75rem">
+                <button class="btn btn-sm btn-primary" @click="addContactModal=true">+ Контакт</button>
+              </div>
+              <div x-show="!contacts.length" class="empty-mini">Контактных лиц нет</div>
+              <template x-for="c in contacts" :key="c.id">
+                <div class="contact-card">
+                  <div style="font-weight:600" x-text="`${c.first_name} ${c.last_name}`"></div>
+                  <div style="font-size:.8rem;color:var(--text-muted)" x-text="c.position"></div>
+                  <div style="font-size:.82rem;margin-top:.25rem">
+                    <span x-show="c.phone_main">📞 <span x-text="c.phone_main"></span> &nbsp;</span>
+                    <span x-show="c.email">✉️ <span x-text="c.email"></span></span>
+                  </div>
+                  <span x-show="c.is_primary" class="badge badge-blue" style="margin-top:.35rem">Основной</span>
+                </div>
+              </template>
+            </div>
+          </template>
+
+          <!-- АКТИВНОСТЬ -->
+          <template x-if="tab==='activity'">
+            <div>
+              <div style="display:flex;justify-content:flex-end;margin-bottom:.75rem">
+                <button class="btn btn-sm btn-primary" @click="addActModal=true">+ Активность</button>
+              </div>
+              <div class="card"><div class="card-body padded">
+                <div x-show="!activities.length" class="empty-mini">Нет активностей</div>
+                <template x-for="a in activities" :key="a.id">
+                  <div class="act-item">
+                    <div class="act-dot"></div>
+                    <div style="flex:1">
+                      <div style="font-weight:500" x-text="actLabel(a.type)"></div>
+                      <div style="color:var(--text-muted)" x-text="a.description||a.outcome"></div>
+                      <div x-show="a.next_step" style="font-size:.78rem;color:var(--info)">→ <span x-text="a.next_step"></span></div>
+                    </div>
+                    <div style="font-size:.76rem;color:var(--text-faint)" x-text="fmtDateTime(a.occurred_at)"></div>
+                  </div>
+                </template>
+              </div></div>
+              <!-- Комментарии -->
+              <div class="card" style="margin-top:1rem">
+                <div class="card-head"><div class="card-title">Комментарии</div></div>
+                <div class="card-body padded">
+                  <div style="display:flex;gap:.5rem;margin-bottom:1rem">
+                    <input class="input" placeholder="Добавить комментарий…" x-model="newComment" @keydown.enter="addComment()">
+                    <button class="btn btn-primary btn-sm" @click="addComment()">Отправить</button>
+                  </div>
+                  <div x-show="!comments.length" class="empty-mini" style="padding:.5rem 0">Нет комментариев</div>
+                  <template x-for="c in comments" :key="c.id">
+                    <div class="comment-item">
+                      <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.2rem">
+                        <span style="font-weight:600;font-size:.82rem" x-text="c.author_name"></span>
+                        <span style="font-size:.74rem;color:var(--text-faint)" x-text="fmtDateTime(c.created_at)"></span>
+                      </div>
+                      <div x-text="c.body"></div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <!-- ИСТОРИЯ -->
+          <template x-if="tab==='history'">
+            <div class="card"><div class="card-body padded">
+              <div x-show="!history.length" class="empty-mini">История пуста</div>
+              <template x-for="h in history" :key="h.id">
+                <div class="history-row">
+                  <span class="badge badge-gray" x-text="stLabel(h.from_status||'—')"></span>
+                  <span style="color:var(--text-faint)">→</span>
+                  <span class="badge" :class="'badge-'+stColor(h.to_status)" x-text="stLabel(h.to_status)"></span>
+                  <span style="flex:1;font-size:.8rem;color:var(--text-muted)" x-text="h.trigger_event?.replace('_',' ')"></span>
+                  <span style="font-size:.76rem;color:var(--text-faint)" x-text="fmtDateTime(h.changed_at)"></span>
+                </div>
+              </template>
+            </div></div>
+          </template>
+        </div>
+      </template>
+
+      <!-- Модалка: добавить активность -->
+      <div x-show="addActModal" x-cloak style="position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:50;display:flex;align-items:center;justify-content:center;padding:1rem" @click.self="addActModal=false">
+        <div class="card" style="width:440px;max-width:100%">
+          <div class="card-head"><div class="card-title">Добавить активность</div></div>
+          <div class="card-body padded">
+            <div style="margin-bottom:.6rem"><label class="field-label">Тип</label>
+              <select class="select" x-model="actForm.type">
+                <template x-for="t in (lookup.activity_types||[])" :key="t"><option :value="t" x-text="lookup.activity_type_labels?.[t]||t"></option></template>
+              </select>
+            </div>
+            <div style="margin-bottom:.6rem"><label class="field-label">Описание</label><textarea class="input" rows="2" x-model="actForm.description"></textarea></div>
+            <div style="margin-bottom:.6rem"><label class="field-label">Результат</label><input class="input" x-model="actForm.outcome"></div>
+            <div style="margin-bottom:.6rem"><label class="field-label">Следующий шаг</label><input class="input" x-model="actForm.next_step"></div>
+            <div style="margin-bottom:.6rem"><label class="field-label">Срок следующего шага</label><input type="date" class="input" x-model="actForm.next_step_due"></div>
+            <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:.75rem">
+              <button class="btn" @click="addActModal=false">Отмена</button>
+              <button class="btn btn-primary" @click="saveActivity()" :disabled="saving">Сохранить</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+  <div class="toast" id="toast"></div>
+  <script type="module" src="/js/pages/company.js"></script>
+  <style>[x-cloak]{display:none!important}</style>
+</body>
+</html>

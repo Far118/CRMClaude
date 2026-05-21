@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Команда — CRMNadya</title>
+  <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="layout">
+    <header class="topbar">
+      <button class="menu-btn" id="menuBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+      <div class="topbar-title">Команда</div>
+    </header>
+    <main class="main">
+      <div id="teamContent"><div class="skeleton" style="width:60%"></div></div>
+    </main>
+  </div>
+  <div class="toast" id="toast"></div>
+  <script type="module">
+    import { initUI, esc, toast, fmtDate } from '/js/ui.js';
+    import { api } from '/js/api.js';
+
+    const session = await initUI({ active: 'team', roles: ['admin','head'] });
+    if (!session) throw new Error('no session');
+
+    const [users, teams] = await Promise.all([
+      api.get('/users').catch(()=>[]),
+      api.get('/teams').catch(()=>[]),
+    ]);
+
+    const roleLabel = { admin:'Администратор', head:'Руководитель', manager:'Менеджер', ops:'Оператор' };
+
+    const rows = users.filter(u => u.is_active).map(u => `
+      <tr>
+        <td style="font-weight:600">${esc([u.first_name,u.last_name].filter(Boolean).join(' ')||u.email)}</td>
+        <td>${esc(u.email)}</td>
+        <td><span class="badge badge-gray">${esc(roleLabel[u.role]||u.role)}</span></td>
+        <td>${esc(u.team_name||'—')}</td>
+        <td style="color:var(--text-muted)">${u.last_login_at?fmtDate(u.last_login_at):'—'}</td>
+      </tr>`).join('');
+
+    document.getElementById('teamContent').innerHTML = `
+      <div class="card">
+        <div style="overflow-x:auto">
+          <table class="table">
+            <thead><tr><th>Имя</th><th>Email</th><th>Роль</th><th>Команда</th><th>Последний вход</th></tr></thead>
+            <tbody>${rows||'<tr><td colspan="5" class="empty-mini">Нет пользователей</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>`;
+  </script>
+</body>
+</html>

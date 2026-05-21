@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Компании — CRMNadya</title>
+  <link rel="stylesheet" href="/css/main.css">
+  <style>
+    .toolbar { display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem; }
+    .toolbar input { flex:1;min-width:180px; }
+    .company-row td { cursor:pointer; }
+  </style>
+</head>
+<body x-data="companiesPage()" x-init="init()">
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="layout">
+    <header class="topbar">
+      <button class="menu-btn" id="menuBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+      <div class="topbar-title">Компании</div>
+      <button class="btn btn-primary" style="margin-left:auto" @click="openNew()">+ Компания</button>
+    </header>
+    <main class="main">
+      <div class="toolbar">
+        <input class="input" placeholder="Поиск по названию, ИНН, телефону…" x-model="q" @input.debounce.400ms="load()">
+        <select class="filter-select" x-model="statusFilter" @change="load()">
+          <option value="">Все статусы</option>
+          <template x-for="s in (lookup.company_statuses||[])" :key="s">
+            <option :value="s" x-text="lookup.company_status_labels?.[s]"></option>
+          </template>
+        </select>
+      </div>
+
+      <div class="card">
+        <div x-show="loading" class="card-body padded"><div class="skeleton" style="width:80%"></div></div>
+        <div x-show="!loading && !companies.length" class="empty-mini">Компаний не найдено</div>
+        <div x-show="!loading && companies.length" style="overflow-x:auto">
+          <table class="table">
+            <thead><tr><th>Название</th><th>Статус</th><th>Ответственный</th><th>Телефон</th><th>Обновлено</th></tr></thead>
+            <tbody>
+              <template x-for="c in companies" :key="c.id">
+                <tr class="company-row" @click="location.href=`/company.html?id=${c.id}`">
+                  <td style="font-weight:600" x-text="c.name"></td>
+                  <td><span class="badge" :class="'badge-'+statusColor(c.calculated_status)" x-text="statusLabel(c.calculated_status)"></span></td>
+                  <td x-text="c.owner_name||'—'"></td>
+                  <td x-text="c.phone_main||'—'"></td>
+                  <td style="color:var(--text-muted)" x-text="fmtDate(c.updated_at)"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Modal -->
+  <div x-show="modalOpen" x-cloak style="position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:50;display:flex;align-items:center;justify-content:center;padding:1rem" @click.self="modalOpen=false">
+    <div class="card" style="width:480px;max-width:100%;max-height:90vh;overflow-y:auto">
+      <div class="card-head"><div class="card-title">Новая компания</div></div>
+      <div class="card-body padded">
+        <div style="margin-bottom:.75rem"><label class="field-label">Название *</label><input class="input" x-model="form.name"></div>
+        <div style="margin-bottom:.75rem"><label class="field-label">ИНН</label><input class="input" x-model="form.inn"></div>
+        <div style="margin-bottom:.75rem"><label class="field-label">Телефон</label><input class="input" x-model="form.phone_main"></div>
+        <div style="margin-bottom:.75rem"><label class="field-label">Email</label><input class="input" x-model="form.email_main"></div>
+        <div style="margin-bottom:.75rem"><label class="field-label">Источник</label><input class="input" x-model="form.source"></div>
+        <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem">
+          <button class="btn" @click="modalOpen=false">Отмена</button>
+          <button class="btn btn-primary" @click="save()" :disabled="saving">Создать</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script type="module" src="/js/pages/companies.js"></script>
+  <style>[x-cloak]{display:none!important}</style>
+</body>
+</html>

@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI-отчёты — CRMNadya</title>
+  <link rel="stylesheet" href="/css/main.css">
+  <style>
+    .upload-drop { border:2px dashed var(--border);border-radius:var(--r-lg);padding:2.5rem;text-align:center;cursor:pointer;transition:.2s }
+    .upload-drop:hover,.upload-drop.drag { border-color:var(--primary);background:var(--primary-light) }
+    .report-item { border:1px solid var(--border);border-radius:var(--r-md);margin-bottom:.65rem;overflow:hidden }
+    .report-head { display:flex;align-items:center;gap:.75rem;padding:.75rem 1rem;background:var(--surface) }
+    .report-name { flex:1;font-weight:600;font-size:.9rem }
+    .ai-grid { display:grid;grid-template-columns:1fr 1fr;gap:.5rem;padding:.75rem 1rem;background:var(--surface-off) }
+    .ai-card { background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:.65rem;font-size:.82rem }
+    .ai-card h4 { font-size:.74rem;font-weight:700;color:var(--text-muted);margin:0 0 .3rem }
+    .ai-card ul { padding-left:1.1rem;margin:0 }
+    .ai-card li { margin-bottom:.2rem }
+    @media(max-width:580px) { .ai-grid { grid-template-columns:1fr } }
+  </style>
+</head>
+<body>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="layout">
+    <header class="topbar">
+      <button class="menu-btn" id="menuBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+      <div class="topbar-title">AI-отчёты</div>
+    </header>
+    <main class="main">
+      <div class="card" style="margin-bottom:1rem">
+        <div class="card-body padded">
+          <div class="upload-drop" id="uploadDrop">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="display:block;margin:0 auto .75rem;color:var(--text-muted)"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <div style="font-weight:700;font-size:.95rem">Загрузите Excel или CSV-файл</div>
+            <div style="font-size:.78rem;color:var(--text-muted);margin-top:.35rem">Поддерживаются .xlsx, .xls, .csv · Макс 20 МБ</div>
+            <input type="file" id="uploadInput" accept=".xlsx,.xls,.csv" style="display:none">
+          </div>
+        </div>
+      </div>
+
+      <div id="reportsList"></div>
+    </main>
+  </div>
+  <div class="toast" id="toast"></div>
+
+  <script type="module">
+    import { initUI, esc, toast, fmtDate } from '/js/ui.js';
+
+    const session = await initUI({ active: 'ai_reports' });
+    if (!session) throw new Error('no session');
+
+    const drop = document.getElementById('uploadDrop');
+    const input = document.getElementById('uploadInput');
+    let reports = [];
+
+    // Загрузить существующие
+    try {
+      const r = await fetch('/api/ai-reports?mine=true',{credentials:'include'});
+      if (r.ok) reports = await r.json();
+    } catch {}
+    renderAll();
+
+    drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('drag'); });
+    drop.addEventListener('dragleave', () => drop.classList.remove('drag'));
+    drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('drag'); handleFile(e.dataTransfer.files[0]); });
+    drop.addEventListener('click', () => input.click());
+    input.addEventListener('change', () => handleFile(input.files[0]));
+
+    async function handleFile(file) {
+      if (!file) return;
+      const entry = { id: null, filename: file.name, status: 'uploading', analysis: null, error: '', uploaded_at: new Date().toISOString() };
+      reports.unshift(entry);
+      renderAll();
+      try {
+        const fd = new FormData(); fd.append('file', file);
+        const r = await fetch('/api/ai-reports',{method:'POST',credentials:'include',body:fd});
+        if (!r.ok) throw new Error(await r.text());
+        const d = await r.json();
+        entry.id = d.id; entry.status = 'done';
+        toast('Файл загружен!','success');
+      } catch(err) { entry.status='error'; entry.error=err.message; toast('Ошибка: '+err.message,'error'); }
+      renderAll();
+    }
+
+    async function analyze(entry) {
+      if (!entry.id) return;
+      entry.status = 'processing'; renderAll();
+      try {
+        const r = await fetch(`/api/ai-reports/${entry.id}/analyze`,{method:'POST',credentials:'include'});
+        if (!r.ok) throw new Error(await r.text());
+        const d = await r.json();
+        entry.analysis = d.analysis || d; entry.status = 'done_analyzed';
+        toast('Анализ готов!','success');
+      } catch(err) { entry.status='error'; entry.error=err.message; toast('Ошибка: '+err.message,'error'); }
+      renderAll();
+    }
+
+    async function deleteReport(entry, idx) {
+      if (!entry.id) { reports.splice(idx,1); renderAll(); return; }
+      try {
+        await fetch(`/api/ai-reports/${entry.id}`,{method:'DELETE',credentials:'include'});
+        reports.splice(idx,1); renderAll(); toast('Удалено');
+      } catch(err) { toast('Ошибка: '+err.message,'error'); }
+    }
+
+    function renderAI(r) {
+      const list = arr => Array.isArray(arr) ? arr.map(s=>`<li>${esc(String(s))}</li>`).join('') : `<li>${esc(String(arr))}</li>`;
+      return `<div class="ai-grid">
+        ${r.executive_summary||r.summary?`<div class="ai-card"><h4>Резюме</h4><p style="margin:0">${esc(r.executive_summary||r.summary)}</p></div>`:''}
+        ${r.trends?.length?`<div class="ai-card"><h4>Тенденции</h4><ul>${list(r.trends)}</ul></div>`:''}
+        ${r.anomalies?.length?`<div class="ai-card"><h4>Аномалии</h4><ul>${list(r.anomalies)}</ul></div>`:''}
+        ${r.recommendations?.length?`<div class="ai-card"><h4>Рекомендации</h4><ul>${list(r.recommendations)}</ul></div>`:''}
+      </div>`;
+    }
+
+    function renderAll() {
+      const el = document.getElementById('reportsList');
+      if (!reports.length) { el.innerHTML='<div class="empty-mini">Нет загруженных файлов</div>'; return; }
+      el.innerHTML = reports.map((rp,i) => `
+        <div class="report-item">
+          <div class="report-head">
+            <div class="report-name">${esc(rp.filename)}</div>
+            <span style="font-size:.76rem;color:var(--text-faint)">${fmtDate(rp.uploaded_at)}</span>
+            ${rp.status==='uploading'?'<span class="badge badge-orange">Загрузка…</span>':''}
+            ${rp.status==='processing'?'<span class="badge badge-blue">Анализ…</span>':''}
+            ${(rp.status==='done'||rp.status==='pending')?`<button class="btn btn-sm btn-primary" data-idx="${i}">✨ Анализировать</button>`:''}
+            ${rp.status==='done_analyzed'?'<span class="badge badge-green">Готово</span>':''}
+            ${rp.status==='error'?`<span class="badge badge-red" title="${esc(rp.error)}">Ошибка</span>`:''}
+            <button class="btn btn-sm btn-ghost" data-del="${i}" title="Удалить">✕</button>
+          </div>
+          ${rp.analysis ? renderAI(rp.analysis) : ''}
+        </div>`).join('');
+
+      el.querySelectorAll('[data-idx]').forEach(btn => btn.addEventListener('click', () => analyze(reports[+btn.dataset.idx])));
+      el.querySelectorAll('[data-del]').forEach(btn => btn.addEventListener('click', () => deleteReport(reports[+btn.dataset.del], +btn.dataset.del)));
+    }
+  </script>
+</body>
+</html>

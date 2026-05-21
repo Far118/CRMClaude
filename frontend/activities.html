@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Задачи и активности — CRMNadya</title>
+  <link rel="stylesheet" href="/css/main.css">
+  <style>
+    .act-card { border:1px solid var(--border);border-radius:var(--r-md);padding:.85rem 1rem;margin-bottom:.5rem;transition:.15s }
+    .act-card.overdue { border-left:3px solid var(--error) }
+    .act-card.today   { border-left:3px solid var(--warning) }
+    .act-card.done    { opacity:.55 }
+  </style>
+</head>
+<body x-data="activitiesPage()" x-init="init()">
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="layout">
+    <header class="topbar">
+      <button class="menu-btn" id="menuBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+      <div class="topbar-title">Задачи и активности</div>
+    </header>
+    <main class="main">
+      <div style="display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap">
+        <select class="filter-select" x-model="typeFilter" @change="applyFilter()">
+          <option value="">Все типы</option>
+          <template x-for="t in (lookup.activity_types||[])" :key="t"><option :value="t" x-text="lookup.activity_type_labels?.[t]||t"></option></template>
+        </select>
+        <select class="filter-select" x-model="doneFilter" @change="applyFilter()">
+          <option value="">Все</option>
+          <option value="false">Только активные</option>
+          <option value="true">Завершённые</option>
+        </select>
+      </div>
+
+      <div x-show="loading"><div class="skeleton" style="width:60%"></div></div>
+      <div x-show="!loading && !filtered.length" class="empty-mini">Нет активностей</div>
+
+      <template x-for="a in filtered" :key="a.id">
+        <div class="act-card" :class="{ overdue: isOverdue(a), today: isToday(a), done: a.is_done }">
+          <div style="display:flex;align-items:center;gap:.65rem">
+            <span class="badge badge-gray" x-text="lookup.activity_type_labels?.[a.type]||a.type"></span>
+            <span style="flex:1;font-weight:500" x-text="a.description||a.outcome||a.next_step||'—'"></span>
+            <span style="font-size:.76rem;color:var(--text-faint)" x-text="fmtDate(a.occurred_at)"></span>
+            <button class="btn btn-sm btn-ghost" @click="toggleDone(a)" x-text="a.is_done?'↩ Снять':'✓ Готово'"></button>
+          </div>
+          <div style="font-size:.8rem;color:var(--text-muted);margin-top:.25rem;display:flex;gap:.75rem;flex-wrap:wrap">
+            <span x-show="a.company_name">🏢 <a :href="`/company.html?id=${a.company_id}`" x-text="a.company_name" style="color:var(--primary)"></a></span>
+            <span x-show="a.next_step">→ <span x-text="a.next_step"></span></span>
+            <span x-show="a.next_step_due" :style="isOverdue(a)?'color:var(--error);font-weight:700':''">📅 <span x-text="fmtDate(a.next_step_due)"></span></span>
+          </div>
+        </div>
+      </template>
+    </main>
+  </div>
+  <div class="toast" id="toast"></div>
+  <script type="module">
+    import Alpine from 'alpinejs';
+    import { api } from '/js/api.js';
+    import { initUI, fmtDate, toast } from '/js/ui.js';
+    import { LOOKUP } from '/js/const.js';
+
+    const todayStr = () => new Date().toISOString().split('T')[0];
+    const normDate = v => v ? String(v).split('T')[0] : '';
+
+    Alpine.data('activitiesPage', () => ({
+      loading: true, activities: [], filtered: [], lookup: {},
+      typeFilter: '', doneFilter: 'false',
+
+      async init() {
+        const s = await initUI({ active: 'activities' });
+        if (!s) return;
+        this.lookup = await LOOKUP.load();
+        try {
+          this.activities = await api.get('/activities?mine=true');
+          this.applyFilter();
+        } catch (err) {
+          toast('Ошибка: ' + err.message, 'error');
+        } finally { this.loading = false; }
+      },
+
+      applyFilter() {
+        let list = [...this.activities];
+        if (this.typeFilter) list = list.filter(a => a.type === this.typeFilter);
+        if (this.doneFilter !== '') list = list.filter(a => String(a.is_done) === this.doneFilter);
+        this.filtered = list;
+      },
+
+      isOverdue(a) { return a.next_step_due && normDate(a.next_step_due) < todayStr() && !a.is_done; },
+      isToday(a)   { return a.next_step_due && normDate(a.next_step_due) === todayStr() && !a.is_done; },
+
+      async toggleDone(a) {
+        try {
+          const updated = await api.patch(`/activities/${a.id}/done`, { is_done: !a.is_done });
+          const idx = this.activities.findIndex(x => x.id === a.id);
+          if (idx >= 0) this.activities[idx] = { ...this.activities[idx], ...updated };
+          this.applyFilter();
+        } catch (err) { toast('Ошибка: ' + err.message, 'error'); }
+      },
+      fmtDate,
+    }));
+
+    window.Alpine = Alpine;
+    Alpine.start();
+  </script>
+</body>
+</html>

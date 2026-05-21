@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Пользователи — CRMNadya</title>
+  <link rel="stylesheet" href="/css/main.css">
+</head>
+<body x-data="usersAdminPage()" x-init="init()">
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="layout">
+    <header class="topbar">
+      <button class="menu-btn" id="menuBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+      <div class="topbar-title">Пользователи</div>
+      <button class="btn btn-primary" style="margin-left:auto" @click="openCreate()">+ Пользователь</button>
+    </header>
+    <main class="main">
+      <div class="card">
+        <div x-show="loading"><div class="card-body padded"><div class="skeleton" style="width:70%"></div></div></div>
+        <div style="overflow-x:auto" x-show="!loading">
+          <table class="table">
+            <thead><tr><th>Имя</th><th>Email</th><th>Роль</th><th>Команда</th><th>Статус</th><th></th></tr></thead>
+            <tbody>
+              <template x-for="u in users" :key="u.id">
+                <tr>
+                  <td style="font-weight:600" x-text="[u.first_name,u.last_name].filter(Boolean).join(' ')||'—'"></td>
+                  <td x-text="u.email"></td>
+                  <td><span class="badge badge-gray" x-text="roleLabels[u.role]||u.role"></span></td>
+                  <td x-text="u.team_name||'—'"></td>
+                  <td><span class="badge" :class="u.is_active?'badge-green':'badge-gray'" x-text="u.is_active?'Активен':'Отключён'"></span></td>
+                  <td>
+                    <button class="btn btn-sm btn-ghost" @click="editUser(u)">Изменить</button>
+                    <button class="btn btn-sm btn-ghost" @click="deactivate(u)" x-show="u.is_active && u.id!==session?.id">Откл.</button>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Modal: create/edit user -->
+  <div x-show="modal" x-cloak style="position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:50;display:flex;align-items:center;justify-content:center;padding:1rem" @click.self="modal=false">
+    <div class="card" style="width:440px;max-width:100%">
+      <div class="card-head"><div class="card-title" x-text="editId?'Редактировать':'Создать пользователя'"></div></div>
+      <div class="card-body padded">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.65rem">
+          <div><label class="field-label">Имя</label><input class="input" x-model="form.first_name"></div>
+          <div><label class="field-label">Фамилия</label><input class="input" x-model="form.last_name"></div>
+        </div>
+        <div style="margin:.65rem 0"><label class="field-label">Email *</label><input type="email" class="input" x-model="form.email"></div>
+        <div style="margin-bottom:.65rem"><label class="field-label" x-text="editId?'Новый пароль (оставить пустым — не менять)':'Пароль *'"></label><input type="password" class="input" x-model="form.password"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.65rem;margin-bottom:.65rem">
+          <div><label class="field-label">Роль</label>
+            <select class="select" x-model="form.role">
+              <template x-for="[k,v] in Object.entries(roleLabels)" :key="k"><option :value="k" x-text="v"></option></template>
+            </select>
+          </div>
+          <div><label class="field-label">Команда</label>
+            <select class="select" x-model="form.team_id">
+              <option value="">— Без команды —</option>
+              <template x-for="t in teams" :key="t.id"><option :value="t.id" x-text="t.name"></option></template>
+            </select>
+          </div>
+        </div>
+        <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem">
+          <button class="btn" @click="modal=false">Отмена</button>
+          <button class="btn btn-primary" @click="save()" :disabled="saving" x-text="saving?'Сохранение…':'Сохранить'"></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script type="module">
+    import Alpine from 'alpinejs';
+    import { api } from '/js/api.js';
+    import { initUI, toast } from '/js/ui.js';
+
+    Alpine.data('usersAdminPage', () => ({
+      loading: true, users: [], teams: [], session: null, modal: false, editId: null, saving: false,
+      roleLabels: { admin:'Администратор', head:'Руководитель', manager:'Менеджер', ops:'Оператор' },
+      form: { first_name:'', last_name:'', email:'', password:'', role:'manager', team_id:'' },
+
+      async init() {
+        this.session = await initUI({ active: 'admin_users', roles: ['admin'] });
+        if (!this.session) return;
+        await this.load();
+      },
+
+      async load() {
+        this.loading = true;
+        try {
+          const [users, teams] = await Promise.all([api.get('/users'), api.get('/teams').catch(()=>[])]);
+          this.users = users; this.teams = teams;
+        } finally { this.loading = false; }
+      },
+
+      openCreate() { this.editId=null; this.form={first_name:'',last_name:'',email:'',password:'',role:'manager',team_id:''}; this.modal=true; },
+      editUser(u)   { this.editId=u.id; this.form={first_name:u.first_name,last_name:u.last_name,email:u.email,password:'',role:u.role,team_id:u.team_id||''}; this.modal=true; },
+
+      async save() {
+        if (!this.form.email) { toast('Email обязателен','error'); return; }
+        if (!this.editId && !this.form.password) { toast('Пароль обязателен','error'); return; }
+        this.saving=true;
+        try {
+          const data = {...this.form};
+          if (!data.password) delete data.password;
+          if (!data.team_id) data.team_id = null;
+          if (this.editId) { await api.put('/users/'+this.editId, data); toast('Сохранено','success'); }
+          else             { await api.post('/users', data); toast('Создан','success'); }
+          this.modal=false; await this.load();
+        } catch(err) { toast('Ошибка: '+err.message,'error'); }
+        finally { this.saving=false; }
+      },
+
+      async deactivate(u) {
+        const toId = prompt(`Передать компании/запросы ${u.first_name} ${u.last_name} менеджеру. Введите email получателя:`);
+        if (!toId) return;
+        const target = this.users.find(x=>x.email===toId.trim()&&x.is_active);
+        if (!target) { toast('Пользователь не найден','error'); return; }
+        try {
+          await api.post(`/users/${u.id}/deactivate`, { transfer_to_user_id: target.id });
+          toast('Пользователь отключён','success'); await this.load();
+        } catch(err) { toast('Ошибка: '+err.message,'error'); }
+      },
+    }));
+
+    window.Alpine = Alpine;
+    Alpine.start();
+  </script>
+  <style>[x-cloak]{display:none!important}</style>
+</body>
+</html>
